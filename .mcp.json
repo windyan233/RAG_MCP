@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "rag-mcp": {
+      "command": "/Users/yanluo/Documents/Claudecode Projects/RAG_MCP/.venv/bin/python",
+      "args": ["-m", "rag_mcp.mcp_server"],
+      "env": {
+        "PYTHONPATH": "/Users/yanluo/Documents/Claudecode Projects/RAG_MCP/src"
+      }
+    }
+  }
+}
