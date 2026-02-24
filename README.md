@@ -1,5 +1,35 @@
 # RAG MCP
 
+## 设计哲学
+
+### 起点：一对一的苏格拉底式学习
+
+本项目受到栋哥 [@dontbesilent](https://www.xiaohongshu.com/user/profile/dontbesilent) 的"任何领域十倍速入门"的启发（[链接](http://xhslink.com/o/1IwXr29GdG8)）。如何学得比任何人都快10倍？答案是：靠AI，因为AI agent可以低成本模拟一对一辅导和掌握学习法。Agent能读写本地文件，为你定制化学习计划，主动发起定制化的提问，并根据你的回答来生成难度递进的学习内容，实现个性化教学。
+
+### 问题：模型的知识是模糊的
+
+虽然我们可以默认Claude Code知道所有书本的内容。但在实践中，当你让 Claude 讲解一本书，它给出的内容来自训练数据的模糊记忆，细节会漂移，引用会捏造，某些小众书籍甚至根本没被训练到。你以为在学"这本书"。因此，才有个这个改进的方案。
+
+### 解法：让 AI 基于你指定的原文回答
+
+RAG（检索增强生成）解决的正是这个问题。它的逻辑是：**先检索，再生成。** 每次回答前，先从你提供的原始资料中精确召回最相关的段落，再让模型基于这些段落作答。这样，模型的每一句话都有据可查，幻觉被大幅压制，答案的质量和可信度本质上取决于你投入的资料质量。
+
+这个项目做的，就是把这套机制轻量化、本地化，并通过 MCP 无缝接入 Claude Code 的对话流。
+
+### 延伸：从"读书"到"学习任何话题"
+
+更进一步，知识从来不只存在于书里。一个话题的最佳学习资料，可能是某篇博客、一个播客的逐字稿、一份内部文档、或者几篇论文的组合。
+
+所以这个项目的组织单元不是"书"，而是 **Topic**——你围绕一个主题，把所有你认为高质量的信息源汇聚在一起，统一索引，然后用对话的方式把它们的知识提取出来。格式不限，来源不限。
+
+### 核心洞察：人的角色转变
+
+在这套系统里，AI 负责检索、理解、表达；而人的核心价值在于：寻找高质量的信息源以及持续不断的进步。
+
+未来，学习的门槛会越来越低，学习的效率会越来越高，学习的深度上限也会越来越高。**希望我们都能成为终身学习者。**
+
+---
+
 基于 [txtai](https://github.com/neuml/txtai) 的语义检索服务，封装为 [MCP](https://modelcontextprotocol.io/) 服务器，可在 Claude Code 中直接调用。
 
 以 **Topic** 为单位组织资料，一个 topic 下可以放任意格式的文件（PDF、EPUB、TXT、MD、HTML），统一索引和检索。无需调用 LLM，直接返回召回的原文段落。
@@ -262,110 +292,3 @@ claude mcp add -s user rag-mcp \
 
 > 注意：路径中如有空格，需用引号包裹整个路径（如上所示）。
 
----
-
-## 测试
-
-### 1. 确认服务已加载
-
-在 Claude Code 中输入：
-
-```
-/mcp
-```
-
-看到 `rag-mcp` 状态为 `connected` 即表示服务正常。
-
-### 2. 终端直接测试
-
-以下命令在项目根目录运行：
-
-```bash
-cd "/path/to/RAG_MCP"
-```
-
-**添加第一个 source（触发 initial_build）**
-```bash
-PYTHONPATH=src .venv/bin/python -c "
-from rag_mcp.topic_service import add_topic_source
-import json
-result = add_topic_source('my-topic', '你的文章内容...（需超过 50 字符）', 'article.md')
-print(json.dumps(result, indent=2, ensure_ascii=False))
-"
-```
-
-**追加第二个 source（触发 incremental_upsert）**
-```bash
-PYTHONPATH=src .venv/bin/python -c "
-from rag_mcp.topic_service import add_topic_source
-import json
-result = add_topic_source('my-topic', '第二篇文章内容...', 'article2.md')
-print(json.dumps(result, indent=2, ensure_ascii=False))
-"
-```
-
-**从本地路径添加文件**
-```bash
-PYTHONPATH=src .venv/bin/python -c "
-from rag_mcp.topic_service import add_topic_file
-import json
-result = add_topic_file('my-topic', '/path/to/paper.pdf')
-print(json.dumps(result, indent=2, ensure_ascii=False))
-"
-```
-
-**语义搜索**
-```bash
-PYTHONPATH=src .venv/bin/python -c "
-from rag_mcp.topic_service import search_topic
-import json
-results = search_topic('my-topic', '你的查询语句', top_k=3)
-print(json.dumps(results, indent=2, ensure_ascii=False))
-"
-```
-
-**查看所有 topic 状态**
-```bash
-PYTHONPATH=src .venv/bin/python -c "
-from rag_mcp.topic_service import list_available_topics
-import json
-print(json.dumps(list_available_topics(), indent=2, ensure_ascii=False))
-"
-```
-
-### 3. 在 Claude Code 对话中直接调用
-
-```
-列出所有 topic
-```
-
-```
-创建一个叫 world-order 的 topic
-```
-
-```
-对 world-order topic 建立索引
-```
-
-```
-在 world-order topic 里搜索：What causes empires to rise and fall？返回 5 段
-```
-
-### 4. MCP Inspector（可视化调试）
-
-```bash
-npx @modelcontextprotocol/inspector \
-  "/Users/yanluo/Documents/Claudecode Projects/RAG_MCP/.venv/bin/python" \
-  -m rag_mcp.mcp_server
-```
-
-会打开本地网页，可手动填写参数调用每个工具，适合排查问题。
-
----
-
-## 手动运行服务器（调试用）
-
-```bash
-cd RAG_MCP
-PYTHONPATH=src .venv/bin/python -m rag_mcp.mcp_server
-```
