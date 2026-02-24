@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 """
-重新索引书籍脚本。
+重新索引 topic 脚本。
 
 用法：
-  # 索引所有书籍
+  # 索引所有 topic
   python reindex.py
 
-  # 索引指定书籍（部分书名即可）
-  python reindex.py Principles
-  python reindex.py "Principles" "Another Book"
+  # 索引指定 topic（部分名称即可）
+  python reindex.py machine-learning
+  python reindex.py "machine-learning" "web-dev"
 """
 
 import sys
@@ -25,7 +25,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from rag_mcp.config import EMBEDDING_MODEL, CHUNK_SIZE, CHUNK_OVERLAP, CHUNK_SIZE_ZH, CHUNK_OVERLAP_ZH
-from rag_mcp.rag_service import build_index, list_available_books
+from rag_mcp.topic_service import build_topic_index, list_available_topics
 
 
 def main():
@@ -35,35 +35,34 @@ def main():
     print(f"  Chunk size  (ZH)  : {CHUNK_SIZE_ZH} chars / overlap {CHUNK_OVERLAP_ZH}")
     print("=" * 60)
 
-    targets = sys.argv[1:]  # 命令行传入的书名（可多个）
+    targets = sys.argv[1:]
 
     if targets:
-        books_to_index = targets
+        topics_to_index = targets
     else:
-        # 索引 books/ 目录下所有书籍
-        available = list_available_books()
+        available = list_available_topics()
         if not available:
-            logger.error("books/ 目录下没有找到任何书籍（.epub / .pdf）")
+            logger.error("topics/ 目录下没有找到任何 topic")
             sys.exit(1)
-        books_to_index = [b["name"] for b in available]
-        print(f"\n未指定书名，将索引全部 {len(books_to_index)} 本书籍：")
-        for name in books_to_index:
+        topics_to_index = [t["name"] for t in available]
+        print(f"\n未指定 topic，将索引全部 {len(topics_to_index)} 个 topic：")
+        for name in topics_to_index:
             print(f"  - {name}")
 
     print()
     success, failed = 0, 0
-    for book_name in books_to_index:
-        print(f">>> 正在索引：{book_name}")
+    for topic_name in topics_to_index:
+        print(f">>> 正在索引：{topic_name}")
         try:
-            meta = build_index(book_name, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)
-            print(f"    完成：{meta['num_chunks']} chunks\n")
+            meta = build_topic_index(topic_name, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)
+            print(f"    完成：{meta['num_sources']} sources, {meta['num_chunks']} chunks\n")
             success += 1
         except Exception as e:
             print(f"    失败：{e}\n")
             failed += 1
 
     print("=" * 60)
-    print(f"  完成 {success} 本，失败 {failed} 本")
+    print(f"  完成 {success} 个，失败 {failed} 个")
     print("=" * 60)
 
 

@@ -1,8 +1,8 @@
 # RAG MCP
 
-基于 [txtai](https://github.com/neuml/txtai) 的书籍语义检索服务，封装为 [MCP](https://modelcontextprotocol.io/) 服务器，可在 Claude Code 中直接调用。
+基于 [txtai](https://github.com/neuml/txtai) 的语义检索服务，封装为 [MCP](https://modelcontextprotocol.io/) 服务器，可在 Claude Code 中直接调用。
 
-支持 PDF 和 EPUB 格式，无需调用 LLM，直接返回召回的原文段落。
+以 **Topic** 为单位组织资料，一个 topic 下可以放任意格式的文件（PDF、EPUB、TXT、MD、HTML），统一索引和检索。无需调用 LLM，直接返回召回的原文段落。
 
 ---
 
@@ -10,13 +10,17 @@
 
 ```
 RAG_MCP/
-├── books/                  # 放置书籍文件（.epub / .pdf）
-├── indexes/                # 持久化向量索引（自动生成，每本书一个子目录）
+├── topics/                 # 资料目录（每个 topic 一个子目录）
+│   └── machine-learning/   #   示例：放入 .txt / .md / .html / .epub / .pdf
+├── indexes/                # 持久化向量索引（自动生成）
+│   └── topic__{name}/      #   每个 topic 一个索引目录
 ├── src/rag_mcp/
 │   ├── config.py           # ← 统一配置（模型、chunk size、top_k）
-│   ├── book_processor.py   # 书籍解析与分块（EPUB / PDF）
-│   ├── rag_service.py      # txtai 索引构建 / 加载 / 语义检索
-│   └── mcp_server.py       # MCP 服务器（暴露 3 个工具）
+│   ├── book_processor.py   # EPUB / PDF 解析与分块，导出 chunk_sections() 供复用
+│   ├── text_processor.py   # 文本文件解析（.txt / .md / .html）
+│   ├── rag_service.py      # txtai 共享原语（索引构建 / 语义检索）
+│   ├── topic_service.py    # Topic 管理：多源聚合索引与检索
+│   └── mcp_server.py       # MCP 服务器（暴露 5 个工具）
 ├── reindex.py              # 重建索引脚本
 ├── .mcp.json               # Claude Code MCP 配置（自动发现）
 └── pyproject.toml
@@ -25,19 +29,19 @@ RAG_MCP/
 ### 核心流程
 
 ```
-书籍文件 (.epub/.pdf)
+源文件 (.epub / .pdf / .txt / .md / .html)
       │
       ▼
-book_processor.py       解析文本 → 按词数分块（默认 500 词，重叠 50 词）
+book_processor.py / text_processor.py    解析文本 → 按词数/字符数分块
       │
       ▼
-rag_service.py          txtai 向量化（sentence-transformers）→ 保存索引到 indexes/
+rag_service.py                           txtai 向量化 → 保存索引到 indexes/
       │
       ▼
-mcp_server.py           MCP 工具接口
+mcp_server.py                            MCP 工具接口
       │
       ▼
-Claude Code             调用 search_book / index_book / list_books
+Claude Code                              调用 search_topic / index_topic / ...
 ```
 
 ---
@@ -66,9 +70,20 @@ uv sync
 
 ## 使用方式
 
-### 1. 添加书籍
+### 1. 添加资料
 
-将 `.epub` 或 `.pdf` 文件放入 `books/` 目录。
+在 `topics/` 下创建以主题命名的子目录，将相关资料放入：
+
+```bash
+mkdir -p topics/machine-learning
+cp blog-post.md topics/machine-learning/
+cp lecture-transcript.txt topics/machine-learning/
+cp textbook.pdf topics/machine-learning/
+```
+
+支持的格式：`.txt`、`.md`、`.markdown`、`.html`、`.htm`、`.epub`、`.pdf`
+
+> 也可以通过 MCP 工具 `create_topic` 和 `add_topic_source` 在对话中直接创建和添加。
 
 ### 2. 在 Claude Code 中使用
 
@@ -76,48 +91,113 @@ uv sync
 
 直接对话即可调用以下工具：
 
-#### `list_books` — 查看所有书籍及索引状态
+#### `list_topics` — 查看所有 topic 及索引状态
 
 ```
-列出 books 目录下所有书籍
+列出所有 topic
 ```
 
-#### `index_book` — 对书籍建立向量索引
+#### `create_topic` — 创建新 topic
 
 ```
-对《Principles》建立索引
+创建一个叫 machine-learning 的 topic
+```
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `topic_name` | string | Topic 名称（用作目录名） |
+
+#### `add_topic_source` — 向 topic 添加文本资料（自动索引）
+
+```
+把这段博客内容添加到 machine-learning topic 里，文件名叫 blog-intro.md
+```
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `topic_name` | string | Topic 名称 |
+| `content` | string | 文本内容 |
+| `source_name` | string | 文件名（如 `blog.md`、`transcript.txt`） |
+
+**添加后自动触发索引**，根据情况选择最优策略：
+
+| 情形 | 策略 | 说明 |
+|------|------|------|
+| 首次添加，无索引 | `initial_build` | 全量建立索引 |
+| 新文件，索引已存在 | `incremental_upsert` | 只 embed 新文件并 upsert，速度快 |
+| 更新已有文件 | `full_rebuild` | FAISS 不支持删除旧向量，需全量重建 |
+
+返回示例：
+```json
+{
+  "path": "topics/machine-learning/blog-intro.md",
+  "action": "incremental_upsert",
+  "new_chunks": 3,
+  "total_chunks": 15
+}
+```
+
+> 也可以直接将文件放入 `topics/{topic_name}/` 目录，再调用 `index_topic` 全量索引。
+
+#### `add_topic_file` — 从本地路径添加文件（自动索引）
+
+```
+把 /Users/me/papers/attention.pdf 添加到 research topic
+```
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `topic_name` | string | Topic 名称 |
+| `file_path` | string | 文件的绝对路径 |
+
+文件会被**复制**到 `topics/{topic_name}/`，文件名保持不变，然后触发与 `add_topic_source` 相同的增量索引逻辑。支持所有格式：`.epub`、`.pdf`、`.txt`、`.md`、`.html`。
+
+与 `add_topic_source` 的区别：
+
+| | `add_topic_source` | `add_topic_file` |
+|--|---|---|
+| 输入 | 原始文本字符串 | 本地文件路径 |
+| 适合 | txt/md，paste 或 Claude 生成内容 | 任意已有文件，尤其是 epub/pdf |
+| 文件名 | 自己指定 | 沿用原文件名 |
+
+#### `index_topic` — 强制全量重建索引
+
+```
+对 machine-learning topic 建立索引
 ```
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `book_name` | string | 必填 | 书名或部分书名 |
-| `chunk_size` | integer | 500 | 每个文本块的词数 |
+| `topic_name` | string | 必填 | Topic 名称 |
+| `chunk_size` | integer | 800 | 每个文本块的词数 |
 
-> 每本书只需索引一次，索引持久化保存在 `indexes/`，重启后无需重建。
+适用场景：
+- 手动往 `topics/` 目录里放了文件（epub/pdf 等无法通过 `add_topic_source` 传内容）
+- 修改了 `config.py` 中的 chunk size 或 embedding 模型后需要重建
+- 想强制从零重建整个 topic 的索引
 
-#### `search_book` — 语义检索召回原文段落
+#### `search_topic` — 在 topic 中语义检索
 
 ```
-在《Principles》中搜索：What causes empires to rise and fall？返回 5 段
+在 machine-learning topic 里搜索：什么是梯度下降？返回 5 段
 ```
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `book_name` | string | 必填 | 书名或部分书名 |
+| `topic_name` | string | 必填 | Topic 名称 |
 | `query` | string | 必填 | 查询语句 |
 | `top_k` | integer | 3 | 返回段落数量（1–20） |
 
 返回示例：
 
 ```
-Top 3 results for: "What causes empires to rise and fall?"
+Top 3 results for: "什么是梯度下降"
 
 --- Result 1 (score: 0.6251) ---
-...while I can't be sure that I have the formula for what makes the world's
-greatest empires and their markets rise and fall exactly right...
+梯度下降是一种优化算法，通过迭代地沿着损失函数的负梯度方向更新参数...
 
 --- Result 2 (score: 0.5731) ---
-...key variables were the distribution of land ownership and taxation...
+在机器学习中，梯度下降法被广泛用于最小化目标函数...
 ```
 
 ---
@@ -142,17 +222,17 @@ CHUNK_OVERLAP_ZH = 30     # 相邻块重叠字符数
 DEFAULT_TOP_K    = 5      # 默认返回段落数
 ```
 
-**语言自动检测**：每个 section（章节/页面）中 CJK 字符占比 > 20% 时自动切换为中文模式，中英混排书籍也能正确处理，无需手动配置。
+**语言自动检测**：每个 section（章节/页面）中 CJK 字符占比 > 20% 时自动切换为中文模式，中英混排也能正确处理，无需手动配置。
 
 修改后重建索引：
 
 ```bash
-# 重建所有书籍索引
+# 重建所有 topic 索引
 python reindex.py
 
-# 只重建指定书籍
-python reindex.py Principles
-python reindex.py "Book A" "Book B"
+# 只重建指定 topic
+python reindex.py machine-learning
+python reindex.py "topic-a" "topic-b"
 ```
 
 > 更换 `EMBEDDING_MODEL` 后必须重建索引，旧索引与模型绑定，不可混用。
@@ -196,21 +276,82 @@ claude mcp add -s user rag-mcp \
 
 看到 `rag-mcp` 状态为 `connected` 即表示服务正常。
 
-### 2. 在 Claude Code 对话中直接调用
+### 2. 终端直接测试
 
-```
-列出所有可用的书籍
-```
+以下命令在项目根目录运行：
 
-```
-对《Principles》建立索引
+```bash
+cd "/path/to/RAG_MCP"
 ```
 
-```
-在《Principles》里搜索：What causes empires to rise and fall？返回 5 段
+**添加第一个 source（触发 initial_build）**
+```bash
+PYTHONPATH=src .venv/bin/python -c "
+from rag_mcp.topic_service import add_topic_source
+import json
+result = add_topic_source('my-topic', '你的文章内容...（需超过 50 字符）', 'article.md')
+print(json.dumps(result, indent=2, ensure_ascii=False))
+"
 ```
 
-### 3. MCP Inspector（可视化调试）
+**追加第二个 source（触发 incremental_upsert）**
+```bash
+PYTHONPATH=src .venv/bin/python -c "
+from rag_mcp.topic_service import add_topic_source
+import json
+result = add_topic_source('my-topic', '第二篇文章内容...', 'article2.md')
+print(json.dumps(result, indent=2, ensure_ascii=False))
+"
+```
+
+**从本地路径添加文件**
+```bash
+PYTHONPATH=src .venv/bin/python -c "
+from rag_mcp.topic_service import add_topic_file
+import json
+result = add_topic_file('my-topic', '/path/to/paper.pdf')
+print(json.dumps(result, indent=2, ensure_ascii=False))
+"
+```
+
+**语义搜索**
+```bash
+PYTHONPATH=src .venv/bin/python -c "
+from rag_mcp.topic_service import search_topic
+import json
+results = search_topic('my-topic', '你的查询语句', top_k=3)
+print(json.dumps(results, indent=2, ensure_ascii=False))
+"
+```
+
+**查看所有 topic 状态**
+```bash
+PYTHONPATH=src .venv/bin/python -c "
+from rag_mcp.topic_service import list_available_topics
+import json
+print(json.dumps(list_available_topics(), indent=2, ensure_ascii=False))
+"
+```
+
+### 3. 在 Claude Code 对话中直接调用
+
+```
+列出所有 topic
+```
+
+```
+创建一个叫 world-order 的 topic
+```
+
+```
+对 world-order topic 建立索引
+```
+
+```
+在 world-order topic 里搜索：What causes empires to rise and fall？返回 5 段
+```
+
+### 4. MCP Inspector（可视化调试）
 
 ```bash
 npx @modelcontextprotocol/inspector \

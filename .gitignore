@@ -9,6 +9,6 @@ wheels/
 # Virtual environments
 .venv
 
-# Book files and generated indexes
-books/
+# files and generated indexes
+topics/
 indexes/

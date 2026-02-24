@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "RAG service over books using txtai, exposed as MCP server"
 requires-python = ">=3.12"
 dependencies = [
-    "txtai[pipeline]>=8.0.0",
+    "txtai>=8.0.0",
     "ebooklib>=0.18",
     "beautifulsoup4>=4.12",
     "pdfplumber>=0.11",

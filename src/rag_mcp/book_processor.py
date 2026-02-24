@@ -86,6 +86,39 @@ def parse_pdf(file_path: Path) -> Iterator[str]:
                 yield text
 
 
+def chunk_sections(
+    sections: Iterator[str],
+    source_name: str,
+    chunk_size: int = 500,
+    overlap: int = 50,
+    chunk_size_zh: int = 500,
+    overlap_zh: int = 50,
+) -> list[dict]:
+    """
+    Convert an iterator of text sections into chunk dicts.
+
+    Returns [{"text": ..., "source": ..., "chunk_id": ...}].
+    chunk_id is stable per source: "{source_name}__{local_idx}".
+    """
+    chunks = []
+    local_idx = 0
+    for section_text in sections:
+        if _is_chinese(section_text):
+            section_chunks = _chunk_text_zh(section_text, chunk_size=chunk_size_zh, overlap=overlap_zh)
+        else:
+            section_chunks = _chunk_text(section_text, chunk_size=chunk_size, overlap=overlap)
+
+        for chunk in section_chunks:
+            chunks.append({
+                "text": chunk,
+                "source": source_name,
+                "chunk_id": f"{source_name}__{local_idx}",
+            })
+            local_idx += 1
+
+    return chunks
+
+
 def load_book_chunks(
     file_path: Path,
     chunk_size: int = 500,
@@ -110,20 +143,4 @@ def load_book_chunks(
     else:
         raise ValueError(f"Unsupported file format: {suffix}. Supported: .epub, .pdf")
 
-    chunks = []
-    chunk_id = 0
-    for section_text in sections:
-        if _is_chinese(section_text):
-            section_chunks = _chunk_text_zh(section_text, chunk_size=chunk_size_zh, overlap=overlap_zh)
-        else:
-            section_chunks = _chunk_text(section_text, chunk_size=chunk_size, overlap=overlap)
-
-        for chunk in section_chunks:
-            chunks.append({
-                "text": chunk,
-                "source": file_path.name,
-                "chunk_id": chunk_id,
-            })
-            chunk_id += 1
-
-    return chunks
+    return chunk_sections(sections, file_path.name, chunk_size, overlap, chunk_size_zh, overlap_zh)
