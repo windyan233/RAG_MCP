@@ -6,7 +6,7 @@ from typing import Iterator
 from .book_processor import chunk_sections, _clean_text
 
 
-SUPPORTED_TEXT_EXTENSIONS = {".txt", ".md", ".markdown", ".html", ".htm"}
+SUPPORTED_TEXT_EXTENSIONS = {".txt", ".md", ".markdown", ".html", ".htm", ".docx"}
 
 
 def parse_text_file(file_path: Path) -> Iterator[str]:
@@ -15,6 +15,17 @@ def parse_text_file(file_path: Path) -> Iterator[str]:
     text = _clean_text(text)
     if len(text) > 50:
         yield text
+
+
+def parse_docx_file(file_path: Path) -> Iterator[str]:
+    """Read a .docx file, extract paragraph text, yield cleaned sections."""
+    from docx import Document
+
+    doc = Document(str(file_path))
+    texts = [_clean_text(p.text) for p in doc.paragraphs if p.text.strip()]
+    full_text = " ".join(texts)
+    if len(full_text) > 50:
+        yield full_text
 
 
 def parse_html_file(file_path: Path) -> Iterator[str]:
@@ -41,6 +52,8 @@ def load_text_file_chunks(
     suffix = file_path.suffix.lower()
     if suffix in (".html", ".htm"):
         sections = parse_html_file(file_path)
+    elif suffix == ".docx":
+        sections = parse_docx_file(file_path)
     elif suffix in SUPPORTED_TEXT_EXTENSIONS:
         sections = parse_text_file(file_path)
     else:
