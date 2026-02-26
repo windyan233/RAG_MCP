@@ -10,7 +10,7 @@
 #   "BAAI/bge-base-en-v1.5"                     英文检索优秀（~430MB）
 #   "BAAI/bge-m3"                               中英双语（~2.2GB）
 #   "shibing624/text2vec-base-chinese"           中文专用（~400MB）
-EMBEDDING_MODEL = "BAAI/bge-base-en-v1.5"
+EMBEDDING_MODEL = "BAAI/bge-m3"
 
 # 英文文本块大小（按空格分词的词数）
 # 较小（200）→ 更精准但上下文少；较大（800）→ 上下文更完整
@@ -21,10 +21,10 @@ CHUNK_OVERLAP = 80
 
 # 中文文本块大小（按字符数）
 # 300~600 字为宜，500 字约一页书
-CHUNK_SIZE_ZH = 300
+CHUNK_SIZE_ZH = 500
 
 # 中文相邻块重叠字符数
-CHUNK_OVERLAP_ZH = 30
+CHUNK_OVERLAP_ZH = 100
 
 # 每次查询默认返回的段落数量（调用时可覆盖）
 DEFAULT_TOP_K = 5

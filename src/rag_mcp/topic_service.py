@@ -249,6 +249,7 @@ def build_topic_index(topic_name: str, chunk_size: int = CHUNK_SIZE, overlap: in
         "source_files": [s["name"] for s in sources],
         "num_chunks": len(all_chunks),
         "chunk_size": chunk_size,
+        "chunk_size_zh": chunk_size_zh,
         "model": EMBEDDING_MODEL,
     }
     build_index_from_chunks(all_chunks, idx_dir, meta)
